@@ -1,0 +1,77 @@
+NICULAESCU OANA
+331 CB
+TEMA 3 ASC - STREAMING
+
+Programul implementeaza un algoritm de scalare a streamurilor video asa cum este descris in enunt.
+
+1. Precizari generale
+
+Exista 16 SPU-uri, fiecare dintre acestea primeste un frame din cele 16 existente care compun o imagine preview. Fiecare spu primeste un pointer la o structura in care se gaseste o referinta catre imaginea intreaga.
+In comentariile din cod se gasesc detalii suplimentare cu privire la modul in care au fost tratate argumentele din linia de comanda.
+Programul se apeleaza utilizand:
+    ./lab_9_ppu input_path output_path num_frames
+    
+PPU-ul comunica cu SPU-urile prin mailbox, sincronizarea realizandu-se prin eventuri.
+
+A fost folosit modelul ReplicatedWorkers, PPU-ul este master si trimite mesaje SPU-urilor cu task-uri.
+
+2. Desfasurare algoritm PPU:
+
+Structuri folosite:
+	struct image{
+        unsigned char *data;
+        unsigned int width, height;
+        unsigned char *stuff;
+   	};
+
+	struct date_init {
+        // adress of the buff vector from which it can take the rows
+        struct image img_orig;
+        unsigned char *img_res;
+        int index_spu;
+        int w_orig;
+        int h_orig;
+        int scalef;
+        int numR;
+        int stuff;
+        unsigned char *more_stuff;
+	};
+
+
+In PPU se aloca spatiu pentru imagine finala si se completeaza dimensiunile acesteia. Sunt create contextele si threadurile care se vor ocupa de prelucrarile de pe SPU. Threadurile sunt pornite cu optiunea de sincronizare prin mailbox pornita.
+Se citesc cele 16 imagini ce corespund unui frame si referinta catre fiecare dintre aceste imagini este salvata in structura info de tipul date_init, structura care va fi transmisa SPU-ului.
+
+PPU - ul citeste toate cele n frame-uri care se doresc a fi procesate pe rand, de fiecare data cate 16 imagini ce vor compune un frame.
+
+Imaginile sunt trimise pe spu utilizand mailbox, se trimite un pointer la structura ce contine imaginea aferenta numarului streamului/spu-ului, dimensiunea acestei structuri precum si o valoare de 1/0 care indica SPU-ului daca si-a terminat treaba sau nu.
+
+PPU - ul asteapta intr-o bucla sosirea a 16 eventuri(cate un event de la fiecare SPU) care va indica daca acesta a terminat task-ul curent, acest raspuns soseste numai dupa ce SPU-ul a prelucrat intreaga imagine ce i-a fost asignata.
+
+Imaginea de la fiecare spu este salvata intr-o imagine temporara si mai apoi copiata la locul ei in imaginea finala.
+
+
+3. Desfasurare algoritm SPU
+
+Sunt folosite aceleasi structuri de date ca si pe PPU.
+
+SPU-ul asteapta intr-o bucla while sa primeasca task-uri de la master/PPU, in momentul in care se gaseste ceva in mailbox se verifica daca aceasta valoare este 1, daca da atunci inseamna ca are un nou task de rezolvat, daca nu atunci insemana ca trebuie sa isi incheie activitatea.
+SPU - ul isi va incheia activitatea doar dupa ce num_frames au fost prelucrate.
+Daca are un task de prelucrat, atunci se citeste pointerul la structura de date trimisa de PPU si dimensiunea acestei structuri. In continuare se vor lua din imaginea originala cate 16 linii din aceasta in transferuri de cate 1 linie ca dimensiune, acestea vor fi salvate intr-o structura de tip buf intermediara si fiecare astfel de structura va fi scalata.
+Dupa scalare rezultatul este pus in main storage la adresa furnizata prin structura transmisa de PPU.
+
+4. Performanta
+
+Pentru 25 de frame-uri:
+
+DMA - TRANSFER
+	Scale time : 11.292048
+	Total time : 16.631568
+
+SERIAL
+	Scale time : 46.438525
+	Total time : 91.925825
+
+5. Alte precizari
+
+Imaginile sunt foarte pixelate din cauza faptului ca scalarea nu am facut-o decat pe linii, nu am realizat si scalarea pe coloane.
+Pentru scalare am utilizat functia spu_avg si am scalat fiecare linie la 486 - dimensiunea liniei scalate.
